@@ -1,0 +1,10 @@
+---
+- hosts: elasticsearch-group
+  become: yes
+  roles:
+    - role: install_elasticsearch
+      tags:
+        - install
+    - role: configure_elasticsearch
+      tags:
+        - configure

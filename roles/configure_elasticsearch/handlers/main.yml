@@ -1,0 +1,14 @@
+---
+# handlers file for configure_elasticsearch
+- name: Start and enable Elastic
+  ansible.builtin.service:
+    name: elasticsearch
+    state: started
+    enabled: true
+
+- name: restart Elastic
+  ansible.builtin.service:
+    name: elasticsearch
+    state: restarted
+    enabled: true
+

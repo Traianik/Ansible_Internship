@@ -1,0 +1,56 @@
+
+- name: Allow PostgreSQL to listen on all interfaces
+  replace:
+      path: /etc/postgresql/{{ postgresql_version }}/main/postgresql.conf
+      regexp: '^#listen_addresses.*'
+      replace: "listen_addresses = '*'"
+      backup: yes
+
+- name: Allow md5 connection for the db user
+  community.postgresql.postgresql_pg_hba:
+    dest: /etc/postgresql/{{ postgresql_version }}/main/pg_hba.conf
+    contype: host
+    address: 0.0.0.0/0
+    databases: "{{ db_name }}"
+    method: md5
+    users: "{{ db_user }}"
+    create: true
+  become: true
+  become_user: postgres
+  notify:
+    - Start and enable service
+
+- name: Create db
+  community.postgresql.postgresql_db:
+    state: present
+    name: "{{ db_name }}"
+  become: true
+  become_user: postgres
+
+- name: Create db user
+  community.postgresql.postgresql_user:
+    state: present
+    name: "{{ db_user }}"
+    password: "{{ db_password }}"
+  become: true
+  become_user: postgres
+  
+- name: Grant db user access to db
+  community.postgresql.postgresql_privs:
+    type: database
+    database: "{{ db_name }}"
+    roles: "{{ db_user }}"
+    grant_option: false
+    privs: all
+  become: true
+  become_user: postgres  
+  notify:
+    - Restarting psql
+    
+- name: Ensure user does not have unnecessary permissions
+  become: true
+  become_user: postgres
+  postgresql_user: name={{ db_user }} role_attr_flags=NOSUPERUSER,NOCREATEDB state=present
+
+
+  

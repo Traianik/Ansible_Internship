@@ -1,0 +1,8 @@
+---
+# handlers file for configure_mongodb
+
+- name: Restart mongodb
+  ansible.builtin.service:
+    name: mongod
+    state: restarted
+    enabled: true

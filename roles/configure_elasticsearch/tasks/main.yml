@@ -1,0 +1,428 @@
+---
+# tasks file for configure_elasticsearch
+
+
+- name: Setup dns
+  lineinfile:
+    dest: /etc/hosts
+    line: "{{ hostvars[groups['elasticsearch-group'][0]]['ansible_default_ipv4']['address'] }}  {{ node0 }}\n{{ hostvars[groups['elasticsearch-group'][1]]['ansible_default_ipv4']['address'] }}  {{ node1 }}\n{{ hostvars[groups['elasticsearch-group'][2]]['ansible_default_ipv4']['address'] }}  {{  node2 }}"
+
+
+##################### CONFIG VERSION 7 #######################################
+- name: Change Cluster Name
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#cluster.name: my-application)'
+      replace: "cluster.name: my-cluster"
+      backup: yes
+  when: es_version ==  "7"
+
+- name: Change Node Names
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#node.name: node-1)'
+      replace: "node.name: node{{ play_hosts.index(inventory_hostname) }}"
+      backup: yes
+  when: es_version ==  "7"
+
+
+- name: Add network host
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#network.host: 192.168.0.1)'
+      replace: "network.host: {{ ansible_ssh_host }}"
+  when: es_version ==  "7"
+  
+
+- name: Add port
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#http.port: 9200)' 
+      replace: "http.port: 9200"
+  when: es_version ==  "7"
+
+- name: Add discovery seed hosts
+  lineinfile:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#discovery.seed_hosts: ["host1", "host2"])'
+      line: "discovery.seed_hosts: [\"{{ node0 }}\", \"{{ node1 }}\", \"{{ node2 }}\" ]"
+  when: es_version ==  "7"
+   
+
+- name: Set initial master node
+  lineinfile:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#cluster.initial_master_nodes: ["node\-1", "node\-2"])'
+      line: "cluster.initial_master_nodes: [ \"node0\" ]"
+  notify: Start and enable Elastic
+  when: es_version ==  "7"
+
+- name: Add node data
+  lineinfile: 
+      path: /etc/elasticsearch/elasticsearch.yml
+      line: "node.data: true"
+  run_once: true
+  delegate_to: esnode1
+  when: es_version ==  "7"
+
+- name: Add node data
+  lineinfile:
+      path: /etc/elasticsearch/elasticsearch.yml
+      line: "node.data: true"
+  run_once: true
+  delegate_to: esnode2
+  when: es_version ==  "7"
+
+
+- name: add security stroke to all nodes
+  blockinfile: 
+      dest: /etc/elasticsearch/elasticsearch.yml 
+      content: |
+        xpack.security.enabled: true
+        xpack.security.http.ssl.enabled: true
+        xpack.security.transport.ssl.enabled: true
+        xpack.security.transport.ssl.verification_mode: certificate
+        xpack.security.http.ssl.key: node{{ play_hosts.index(inventory_hostname) }}.key
+        xpack.security.http.ssl.certificate: node{{ play_hosts.index(inventory_hostname) }}.crt
+        xpack.security.http.ssl.certificate_authorities: ca.crt
+        xpack.security.transport.ssl.key: node{{ play_hosts.index(inventory_hostname) }}.key
+        xpack.security.transport.ssl.certificate: node{{ play_hosts.index(inventory_hostname) }}.crt
+        xpack.security.transport.ssl.certificate_authorities: ca.crt
+  when: es_version ==  "7"
+        
+
+
+################## MAKING CERTS ########################
+- name: Creates cert dir
+  file:
+    path: /opt/cert
+    state: directory
+  run_once: true
+  delegate_to: node0_master
+  when: es_version ==  "7"
+
+- name: Create instance file
+  ansible.builtin.copy:
+    content: |
+      instances:
+      - name: 'node0'
+        dns: 
+          - '{{ node0 }}'
+      - name: 'node1'
+        dns: 
+          - '"{{ node1 }}"'
+      - name: 'node2'
+        dns: 
+          - '"{{ node2 }}"'
+    dest: /opt/cert/instance.yml
+  run_once: true
+  delegate_to: node0_master
+  when: es_version ==  "7"
+
+- name: Create certificates
+  shell:  /usr/share/elasticsearch/bin/elasticsearch-certgen --in /opt/cert/instance.yml --out /opt/cert/certs.zip
+  run_once: true
+  delegate_to: node0_master
+  when: es_version ==  "7"
+
+
+- name: Unzip certificates in certs file
+  ansible.builtin.unarchive:
+    src: /opt/cert/certs.zip
+    dest: /opt/cert/
+    remote_src: yes
+  run_once: true
+  delegate_to: node0_master
+  when: es_version ==  "7"
+
+
+
+- name: Copy certs to elasticsearch dir node0
+  ansible.builtin.copy:
+    src: "{{ item.src }}" 
+    dest: "{{ item.dest }}"
+    remote_src: yes
+  loop:
+    - src: /opt/cert/ca/ca.crt
+      dest: /etc/elasticsearch/
+    - src: /opt/cert/node0/
+      dest: /etc/elasticsearch/
+  run_once: true
+  delegate_to: node0_master
+  when: es_version ==  "7"
+
+
+- name: Fetching certs from node0
+  fetch:
+    src: "{{ item.src }}" 
+    dest: "{{ item.dest }}"
+  loop:
+    - src: /opt/cert/ca/ca.crt
+      dest: ../elastic_certs/
+    - src: /opt/cert/node0/node0.crt
+      dest: ../elastic_certs/
+    - src: /opt/cert/node0/node0.key
+      dest: ../elastic_certs/
+    - src: /opt/cert/node1/node1.crt
+      dest: ../elastic_certs/
+    - src: /opt/cert/node1/node1.key
+      dest: ../elastic_certs/
+    - src: /opt/cert/node2/node2.crt
+      dest: ../elastic_certs/
+    - src: /opt/cert/node2/node2.key
+      dest: ../elastic_certs/
+  run_once: true
+  delegate_to: node0_master 
+  when: es_version ==  "7"
+
+
+
+- name: Copy to node 1 key
+  ansible.builtin.copy:
+    src: "{{ item.src }}" 
+    dest: "{{ item.dest }}"
+  loop:
+    - src:  ../elastic_certs/node0_master/opt/cert/ca/ca.crt
+      dest: /etc/elasticsearch/
+    - src: ../elastic_certs/node0_master/opt/cert/node1/node1.crt
+      dest: /etc/elasticsearch/
+    - src: ../elastic_certs/node0_master/opt/cert/node1/node1.key
+      dest: /etc/elasticsearch/
+  run_once: true
+  delegate_to: esnode1
+  when: es_version ==  "7"
+
+
+- name: Copy keys to node2
+  ansible.builtin.copy:
+    src: "{{ item.src }}" 
+    dest: "{{ item.dest }}"
+  loop:
+    - src:  ../elastic_certs/node0_master/opt/cert/ca/ca.crt
+      dest: /etc/elasticsearch/
+    - src: ../elastic_certs/node0_master/opt/cert/node2/node2.crt
+      dest: /etc/elasticsearch/
+    - src: ../elastic_certs/node0_master/opt/cert/node2/node2.key
+      dest: /etc/elasticsearch/
+  run_once: true
+  delegate_to: esnode2
+  when: es_version ==  "7"
+
+- name: Start and enable Elastic
+  ansible.builtin.service:
+    name: elasticsearch
+    state: started
+    enabled: true
+  when: es_version ==  "7"
+
+- name: Setup passwords interactive
+  expect:
+    command: /usr/share/elasticsearch/bin/elasticsearch-setup-passwords interactive -u "https://esnode0:9200"
+    echo: true
+    timeout: 15
+    responses:
+      "(.*)would like to continue(.*)": "y"
+      'Enter password for \[elastic\]:': "{{ elastic }}"
+      'Reenter password for \[elastic\]:': "{{ elastic }}"
+      '(.*)\[apm\_system\]': "{{ apmsystem }}"
+      '(.*)\[kibana\_system\]': "{{ kibana }}"
+      '(.*)\[logstash\_system\]': "{{ logstashsystem }}"
+      '(.*)\[beats\_system\]': "{{ beatssystem }}"
+      '(.*)\[remote\_monitoring\_user\]': "{{ remotemonitoringuser }}"
+  run_once: true
+  delegate_to: node0_master 
+  when: es_version ==  "7"
+
+
+################# VERSION 8 ###############################################
+
+- name: Change Cluster Name
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#cluster.name: my-application)'
+      replace: "cluster.name: my-cluster"
+      backup: yes
+  when: es_version ==  "8"
+
+- name: Change Node Names
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#node.name: node-1)'
+      replace: "node.name: node{{ play_hosts.index(inventory_hostname) }}"
+      backup: yes
+  when: es_version ==  "8"
+
+- name: Add node master and data
+  lineinfile:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(node.name:)'
+      line: "node.roles: [ master, data ]"
+  when: es_version ==  "8"
+
+- name: Add network host
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#network.host: 192.168.0.1)'
+      replace: "network.host: {{ ansible_ssh_host }}"
+  when: es_version ==  "8"
+  
+
+- name: Add port
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '(#http.port: 9200)' 
+      replace: "http.port: 9200"
+  when: es_version ==  "8"
+
+# - name: Add discovery seed hosts
+#   lineinfile:
+#       path: /etc/elasticsearch/elasticsearch.yml
+#       regexp: '(#discovery.seed_hosts: ["host1", "host2"])'
+#       line: "discovery.seed_hosts: [\"{{ node0 }}\", \"{{ node1 }}\", \"{{ node2 }}\" ]"
+#   when: es_version ==  "8"
+   
+
+# - name: Set initial master node
+#   lineinfile:
+#       path: /etc/elasticsearch/elasticsearch.yml
+#       regexp: '(#cluster.initial_master_nodes: ["node\-1", "node\-2"])'
+#       line: "cluster.initial_master_nodes: [ \"node0\" ]"
+#   notify: Start and enable Elastic
+#   when: es_version ==  "8"
+
+- name: Start and enable Elastic
+  ansible.builtin.service:
+    name: elasticsearch
+    state: started
+    enabled: true
+  delegate_to: node0_master
+  when: es_version ==  "8"  
+
+- name: Create enrollment token on master
+  shell: /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s node > /home/enroll-token.txt
+  run_once: true
+  delegate_to: node0_master
+  when: es_version ==  "8"  
+
+
+
+# - name: Delete es config yml
+#   ansible.builtin.file:
+#     state: absent
+#     path: /etc/elasticsearch/elasticsearch.yml
+#   when: es_version ==  "8"
+
+# - name: Create instance file
+#   ansible.builtin.copy:
+#     content: |
+#       cluster.name: my-cluster
+#       node.name: node{{ play_hosts.index(inventory_hostname) }}
+#       node.roles: [ master, data ]
+#       path.data: /var/lib/elasticsearch
+#       path.logs: /var/log/elasticsearch
+#       network.host: {{ ansible_ssh_host }}
+#       http.port: 9200
+#       transport.host: {{ ansible_ssh_host }}
+#       transport.port: 9300
+#       discovery.seed_hosts: ["{{ node0 }}", "{{ node1 }}", "{{ node2 }}" ]
+#       cluster.initial_master_nodes: ["node0"]
+
+#       xpack.security.enabled: true
+#       xpack.security.http.ssl.enabled: true
+#       xpack.security.transport.ssl.enabled: true
+#       xpack.security.transport.ssl.verification_mode: certificate
+#       xpack.security.http.ssl.key: node{{ play_hosts.index(inventory_hostname) }}.key
+#       xpack.security.http.ssl.certificate: node{{ play_hosts.index(inventory_hostname) }}.crt
+#       xpack.security.http.ssl.certificate_authorities: ca.crt
+#       xpack.security.transport.ssl.key: node{{ play_hosts.index(inventory_hostname) }}.key
+#       xpack.security.transport.ssl.certificate: node{{ play_hosts.index(inventory_hostname) }}.crt
+#       xpack.security.transport.ssl.certificate_authorities: ca.crt
+      
+#     dest: /etc/elasticsearch/elasticsearch.yml
+#   when: es_version ==  "8"
+
+
+
+- name: Fetching enroll token from node0
+  fetch:
+    src: "/home/enroll-token.txt" 
+    dest: "../elastic_token/"
+  run_once: true
+  delegate_to: node0_master 
+  when: es_version ==  "8"
+
+- name: Copy enroll to nodes
+  ansible.builtin.copy:
+    src: "../elastic_token/node0_master/home/enroll-token.txt" 
+    dest: "/etc/elasticsearch/enroll-token.txt"
+  when: es_version ==  "8"
+
+- name: Set permissions and ownership for elasticsearch files    
+  become: yes
+  file:
+    path: /etc/elasticsearch/enroll-token.txt
+    owner: root
+    group: elasticsearch
+  delegate_to: esnode1
+
+
+- name: Set permissions and ownership for elasticsearch files    
+  become: yes
+  file:
+    path: /etc/elasticsearch/enroll-token.txt
+    owner: root
+    group: elasticsearch
+  delegate_to: esnode2
+
+
+- name: Create enrollment token on node1
+  become: true
+  expect:
+    command: /usr/share/elasticsearch/bin/elasticsearch-reconfigure-node --enrollment-token "{{ lookup('file', '../elastic_token/node0_master/home/enroll-token.txt') }}"
+    echo: true 
+    timeout: 15
+    responses:
+      "(.*)Do you want to continue": "y\n"
+  run_once: true
+  delegate_to: esnode1
+  when: es_version ==  "8" 
+
+- name: Create enrollment token on node2
+  become: true
+  expect:
+    command: /usr/share/elasticsearch/bin/elasticsearch-reconfigure-node --enrollment-token "{{ lookup('file', '../elastic_token/node0_master/home/enroll-token.txt') }}"
+    echo: true 
+    timeout: 15
+    responses:
+      "(.*)Do you want to continue": "y\n"
+  run_once: true
+  delegate_to: esnode2
+  when: es_version ==  "8" 
+
+- name: Create user
+  shell:  /usr/share/elasticsearch/bin/elasticsearch-users useradd traian -p traian123 -r superuser
+  when: es_version ==  "8"
+
+- name: Add discovery seed hosts
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '^((?!#)discovery.seed_hosts.*)'
+      replace: "discovery.seed_hosts: [\"{{ hostvars[groups['elasticsearch-group'][0]]['ansible_default_ipv4']['address'] }}\", \"{{ hostvars[groups['elasticsearch-group'][1]]['ansible_default_ipv4']['address'] }}\", \"{{ hostvars[groups['elasticsearch-group'][2]]['ansible_default_ipv4']['address'] }}\" ]"
+  when: es_version ==  "8"
+
+- name: Add discovery seed hosts to master
+  replace:
+      path: /etc/elasticsearch/elasticsearch.yml
+      regexp: '^(#discovery.seed_hosts.*)'
+      replace: "discovery.seed_hosts: [\"{{ hostvars[groups['elasticsearch-group'][0]]['ansible_default_ipv4']['address'] }}\", \"{{ hostvars[groups['elasticsearch-group'][1]]['ansible_default_ipv4']['address'] }}\", \"{{ hostvars[groups['elasticsearch-group'][2]]['ansible_default_ipv4']['address'] }}\" ]"
+  run_once: true
+  delegate_to: node0_master
+  when: es_version ==  "8"
+
+- name: Start and enable Elastic
+  ansible.builtin.service:
+    name: elasticsearch
+    state: restarted
+    enabled: true
+  when: es_version ==  "8"  
+ 

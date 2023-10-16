@@ -1,0 +1,32 @@
+---
+# tasks file for install_mongodb
+- name: Install gnupg - its required libraries
+  ansible.builtin.apt:
+    name:
+      - gnupg
+    state: present
+
+- name: Import public key
+  ansible.builtin.apt_key:
+    url: 'https://www.mongodb.org/static/pgp/server-6.0.asc'
+    state: present
+
+- name: Add repository
+  ansible.builtin.apt_repository:
+    filename: '/etc/apt/sources.list.d/mongodb-org-6.0.list'
+    repo: 'deb http://repo.mongodb.org/apt/debian bullseye/mongodb-org/6.0 main'
+    state: present
+    update_cache: yes
+
+- name: Install mongoDB , and necessary dependecies
+  ansible.builtin.apt: 
+    name: 
+      - mongodb-org
+      - pip
+      - rsync
+    state: present
+
+
+- name: Install pymongo to use community 
+  ansible.builtin.pip:
+    name: pymongo 

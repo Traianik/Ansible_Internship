@@ -1,0 +1,6 @@
+
+db_user: traian 
+db_name: lol
+db_password: "{{ vault_db_password }}"
+ansible_ssh_pipelining: true
+postgresql_version: 15

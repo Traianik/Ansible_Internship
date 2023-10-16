@@ -1,0 +1,17 @@
+[postgresql-group]
+first_server ansible_host= ansible_connection=ssh 
+
+#TODO Put host ips
+[mongodb-group] 
+node0_master ansible_host= ansible_connection=ssh 
+node1_data ansible_host= ansible_connection=ssh
+node2_data ansible_host= ansible_connection=ssh 
+
+
+[elasticsearch-group] 
+node0_master ansible_host= ansible_connection=ssh  
+esnode1 ansible_host= ansible_connection=ssh
+esnode2 ansible_host= ansible_connection=ssh 
+
+
+ 

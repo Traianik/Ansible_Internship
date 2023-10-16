@@ -1,0 +1,11 @@
+
+node0: esnode0
+node1: esnode1
+node2: esnode2 
+es_version: "8"
+elastic: "{{ elastic_vault_pass }}"
+apmsystem: "{{ apm_system_vault }}"
+kibana: "{{ kibana_vault }}"
+logstashsystem: "{{ logstash_system_vault }}"
+beatssystem: "{{ beats_system_vault }}"
+remotemonitoringuser: "{{ remote_monitoring_user_vault }}" 

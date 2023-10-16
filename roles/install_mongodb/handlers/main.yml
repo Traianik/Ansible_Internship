@@ -1,0 +1,7 @@
+---
+# handlers file for install_mongodb
+- name: Service mongodb
+  ansible.builtin.service: 
+    name: mongod 
+    enabled: yes
+    state: started

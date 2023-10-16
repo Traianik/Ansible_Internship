@@ -1,0 +1,29 @@
+---
+
+
+- name: Install transport, gpg, zip
+  ansible.builtin.apt: 
+    name: 
+      - apt-transport-https
+      - gpg 
+      - zip
+      - pip
+    state: present
+
+- name: Import elastic GPG KEY
+  shell:  wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo gpg --dearmor -o /usr/share/keyrings/elasticsearch-keyring.gpg
+
+- name: Add elastic repo
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/{{ es_version }}.x/apt stable main"
+    state: present
+
+- name: Install ElasticSearch
+  ansible.builtin.apt: 
+    name: 
+      - elasticsearch
+    state: present
+
+- name: Install pexpect 
+  ansible.builtin.pip:
+    name: pexpect 

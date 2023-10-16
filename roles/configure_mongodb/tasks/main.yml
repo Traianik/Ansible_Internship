@@ -1,0 +1,110 @@
+---
+
+
+
+- name: Bind IP dynamically
+  replace:
+      path: /etc/mongod.conf
+      regexp: '(bindIp:\s)(.*)$'
+      replace: "bindIp: 127.0.0.1,{{ ansible_ssh_host }}"
+      backup: yes
+
+################ SECURITY ##########################s
+
+
+# - name: Give permission to key
+#   ansible.builtin.shell:
+#     cmd: chmod 400 /etc/mongo_keys
+#   run_once: true
+#   delegate_to: node0_master
+#   become: true
+
+- name: Generate Mongo Key
+  ansible.builtin.copy:
+    content: "{{ lookup('community.general.random_string', base64=True, length=756) }}"
+    dest: /etc/mongo_keys
+  run_once: true
+  delegate_to: node0_master
+
+- name: Fetching key from node0
+  fetch:
+    src: /etc/mongo_keys
+    dest: ../mongo_keys
+  run_once: true
+  delegate_to: node0_master 
+
+- name: Copy mongo keys
+  ansible.builtin.copy:
+    src: ../mongo_keys/node0_master/etc/mongo_keys
+    dest: /etc/mongo_keys
+  
+- name: Set permissions and ownership for mongo-key file    
+  become: yes
+  file:
+    path: /etc/mongo_keys
+    mode: '400'      
+    owner: mongodb
+    group: mongodb
+
+- name: Add Replica Set to conf file
+  replace:
+      path: /etc/mongod.conf
+      regexp: '#replication:'
+      replace: 'replication:\n  replSetName: "rs0"'
+  #notify:
+  #  - Restart mongodb
+
+- name: Add security to conf file
+  replace:
+      path: /etc/mongod.conf
+      regexp: '#security:'
+      replace: 'security:\n  keyFile: /etc/mongo_keys'
+
+##############################################################################
+- name: Service mongodb
+  ansible.builtin.service: 
+    name: mongod 
+    enabled: yes
+    state: started
+
+- name: Ensure replicaset rs0 exists
+  community.mongodb.mongodb_replicaset:
+    login_host: localhost
+    login_user: admin
+    login_password: admin
+    replica_set: rs0 
+    members:
+    - "{{ hostvars[groups['mongodb-group'][0]]['ansible_default_ipv4']['address'] }}"
+    - "{{ hostvars[groups['mongodb-group'][1]]['ansible_default_ipv4']['address'] }}"
+    - "{{ hostvars[groups['mongodb-group'][2]]['ansible_default_ipv4']['address'] }}"
+
+  run_once: true
+  delegate_to: node0_master
+
+- name: Sleep for 15 seconds and continue with play
+  wait_for:
+   timeout: 15
+
+
+- name: Create MongoDB root user siteRootAdmin
+  mongodb_user:
+    login_port: "27017"
+    database: "admin"
+    name: "{{ db_user }}"
+    password: "{{ db_root_password }}"
+    roles: "root"
+  run_once: true
+  delegate_to: node0_master
+
+- name: Create MongoDB Simple User
+  mongodb_user: 
+    login_user: "{{ db_user }}"
+    login_password: "{{ db_root_password }}"
+    login_port: "27017"
+    database: "{{ db_name }}"
+    name: "{{ db_simple_user }}"
+    password: "{{ db_password }}"
+    roles:
+      - { db: "{{ db_name }}", role: "readWrite" }
+  run_once: true
+  delegate_to: node0_master 

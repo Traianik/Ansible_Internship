@@ -1,0 +1,6 @@
+
+db_user: traian 
+db_root_password: "{{ vault_db_root_password }}"
+db_name: lol
+db_password: "{{ vault_db_password }}"
+db_simple_user: valera

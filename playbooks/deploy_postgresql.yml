@@ -1,0 +1,13 @@
+---
+- hosts: postgresql-group
+  become: yes
+  roles:
+    - role: postgres_install
+      tags:
+        - install
+        - deploy
+    - role: configure_postgres
+      tags:
+        - configure
+        - deploy
+ 
